@@ -8,13 +8,14 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Flame, 
   Info, 
-  Settings, 
+  Volume2,
+  VolumeX, 
   Zap, 
   RotateCcw, 
   ChevronRight, 
   ChevronLeft, 
-  Download,
-  Trophy
+  Trophy,
+  ChevronUp
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -36,21 +37,170 @@ interface SymbolType {
 }
 
 const SYMBOLS: SymbolType[] = [
-  { id: 'king', name: 'KING', img: 'https://clashofslots.com/wp-content/uploads/2023/09/boxing-king-01.png', value: 50 },
-  { id: 'master', name: 'MASTER', img: 'https://clashofslots.com/wp-content/uploads/2023/09/boxing-king-02.png', value: 30 },
-  { id: 'glove', name: 'GLOVE', img: 'https://clashofslots.com/wp-content/uploads/2023/09/boxing-king-03.png', value: 20 },
+  { id: 'king_card', name: 'KING', img: 'https://allslotsonline.casino/en/images/jili-games/boxing-king/symbols/icon-1071645790.webp', value: 50, isScatter: true },
+  { id: 'glove_card', name: 'GLOVE', img: 'https://allslotsonline.casino/en/images/jili-games/boxing-king/symbols/icon-1159747390.webp', value: 30, isScatter: true },
   { id: 'strike', name: 'STRIKE', img: 'https://clashofslots.com/wp-content/uploads/2023/09/boxing-king-04.png', value: 15 },
   { id: 'wild', name: 'WILD', img: 'https://clashofslots.com/wp-content/uploads/2023/09/boxing-king-05.png', value: 0, isWild: true },
-  { id: 'free', name: 'FREE', img: 'https://clashofslots.com/wp-content/uploads/2023/09/boxing-king-06.png', value: 0, isScatter: true },
   { id: 'bell', name: 'BELL', img: 'https://clashofslots.com/wp-content/uploads/2023/09/boxing-king-07.png', value: 10 },
   { id: 'q', name: 'Q', img: 'https://clashofslots.com/wp-content/uploads/2023/09/boxing-king-11.png', value: 5 },
   { id: 'j', name: 'J', img: 'https://clashofslots.com/wp-content/uploads/2023/09/boxing-king-12.png', value: 2 },
 ];
 
+const BET_VALUES = [10, 20, 50, 100, 200, 500, 1000, 2000];
 const REEL_COUNT = 5;
 const ROW_COUNT = 3;
 
 // --- Components ---
+
+const playSound = (type: 'spin' | 'win' | 'bigWin' | 'punch' | 'pop', enabled: boolean) => {
+  if (!enabled) return;
+  const sounds = {
+    spin: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3',
+    win: 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3',
+    bigWin: 'https://assets.mixkit.co/active_storage/sfx/2017/2017-preview.mp3',
+    punch: 'https://assets.mixkit.co/active_storage/sfx/2015/2015-preview.mp3',
+    pop: 'https://assets.mixkit.co/active_storage/sfx/2011/2011-preview.mp3'
+  };
+  const audio = new Audio(sounds[type]);
+  audio.volume = 0.3;
+  audio.play().catch(() => {}); 
+};
+
+interface ReelProps {
+  isSpinning: boolean;
+  targetSymbols: SymbolType[];
+  isTurbo: boolean;
+  onStop: () => void;
+  colIndex: number;
+  winningCells: boolean[];
+  key?: React.Key;
+}
+
+const Reel = ({ 
+  isSpinning, 
+  targetSymbols, 
+  isTurbo, 
+  onStop, 
+  colIndex,
+  winningCells
+}: ReelProps) => {
+  const [offset, setOffset] = useState(0);
+  const [displaySymbols, setDisplaySymbols] = useState<SymbolType[]>([]);
+  const animationRef = useRef<any>(null);
+  const symbolHeight = 64; // h-16 = 64px
+  
+  // Initialize with random symbols
+  useEffect(() => {
+    const initial = Array(ROW_COUNT).fill(null).map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]);
+    setDisplaySymbols(initial);
+  }, []);
+
+  useEffect(() => {
+    if (isSpinning) {
+      // Start spinning (Top to Bottom)
+      const spinSpeed = isTurbo ? 50 : 35;
+      const staggerDelay = colIndex * (isTurbo ? 80 : 150);
+      const minSpinTime = (isTurbo ? 400 : 1000) + staggerDelay;
+
+      // Create a very long list for seamless infinite spinning
+      // We prepend symbols so we can move the container DOWN
+      const poolSize = 30;
+      const pool = Array(poolSize).fill(null).map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]);
+      setDisplaySymbols(pool);
+      
+      // Start from a negative offset (hiding most of the pool above)
+      const startSpinOffset = -((poolSize - ROW_COUNT) * symbolHeight);
+      setOffset(startSpinOffset);
+
+      const animateSpin = () => {
+        setOffset(prev => {
+          const next = prev + spinSpeed;
+          // If we reach near 0, wrap back to the top of the pool
+          if (next >= 0) {
+            return startSpinOffset;
+          }
+          return next;
+        });
+        animationRef.current = requestAnimationFrame(animateSpin);
+      };
+
+      animationRef.current = requestAnimationFrame(animateSpin);
+
+      const stopTimer = setTimeout(() => {
+        cancelAnimationFrame(animationRef.current);
+        
+        // Final sequence: [Target1, Target2, Target3, Padding...]
+        // We want to land on targetSymbols at the TOP of the container (translateY = 0)
+        const paddingCount = 15;
+        const padding = Array(paddingCount).fill(null).map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]);
+        const finalStrip = [...targetSymbols, ...padding];
+        setDisplaySymbols(finalStrip);
+        
+        // We are currently at some 'offset' (negative).
+        // We want to animate to offset = 0 (where targetSymbols are visible).
+        // To make it look like it's falling from top, we start from a negative offset.
+        const initialStopOffset = -(paddingCount * symbolHeight);
+        const overshoot = symbolHeight * 0.3;
+        const startPos = initialStopOffset - overshoot;
+        
+        let start: number | null = null;
+        const duration = isTurbo ? 350 : 700;
+
+        const animateStop = (timestamp: number) => {
+          if (!start) start = timestamp;
+          const progress = Math.min((timestamp - start) / duration, 1);
+          
+          // Quartic ease out for professional "snap" and weight
+          const easeOut = 1 - Math.pow(1 - progress, 4);
+          const currentOffset = startPos * (1 - easeOut);
+          
+          setOffset(currentOffset);
+
+          if (progress < 1) {
+            animationRef.current = requestAnimationFrame(animateStop);
+          } else {
+            setOffset(0);
+            setDisplaySymbols(targetSymbols);
+            onStop();
+          }
+        };
+
+        animationRef.current = requestAnimationFrame(animateStop);
+      }, minSpinTime);
+
+      return () => {
+        cancelAnimationFrame(animationRef.current);
+        clearTimeout(stopTimer);
+      };
+    }
+  }, [isSpinning, targetSymbols, isTurbo]);
+
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-zinc-950/60">
+      <div 
+        className="flex flex-col"
+        style={{ transform: `translateY(${offset}px)` }}
+      >
+        {displaySymbols.map((symbol, i) => (
+          <div key={i} className="h-16 w-full shrink-0">
+            <SymbolIcon 
+              symbol={symbol} 
+              isWinning={!isSpinning && displaySymbols.length === ROW_COUNT && winningCells[i]} 
+            />
+          </div>
+        ))}
+      </div>
+      
+      {/* Motion Blur Effect */}
+      {isSpinning && (
+        <div className="absolute inset-0 bg-gradient-to-b from-black/90 via-transparent to-black/90 pointer-events-none z-20" />
+      )}
+      
+      {/* Inner Shadow for depth */}
+      <div className="absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,1)] pointer-events-none z-10" />
+    </div>
+  );
+};
 
 const SymbolIcon = ({ symbol, isWinning }: { symbol: SymbolType; isWinning?: boolean }) => (
   <div className={cn(
@@ -71,13 +221,10 @@ const SymbolIcon = ({ symbol, isWinning }: { symbol: SymbolType; isWinning?: boo
       {symbol.id === 'strike' && (
         <div className="absolute inset-0 bg-gradient-to-b from-blue-500 to-blue-800 opacity-5 blur-xl group-hover:opacity-10 transition-opacity" />
       )}
-      {symbol.id === 'glove' && (
+      {symbol.id === 'glove_card' && (
         <div className="absolute inset-0 bg-gradient-to-b from-red-500 to-red-800 opacity-5 blur-xl group-hover:opacity-10 transition-opacity" />
       )}
-      {symbol.id === 'master' && (
-        <div className="absolute inset-0 bg-gradient-to-b from-blue-600 to-cyan-400 opacity-5 blur-xl group-hover:opacity-10 transition-opacity" />
-      )}
-      {symbol.id === 'king' && (
+      {symbol.id === 'king_card' && (
         <div className="absolute inset-0 bg-gradient-to-b from-red-600 to-orange-600 opacity-5 blur-xl group-hover:opacity-10 transition-opacity" />
       )}
 
@@ -101,8 +248,13 @@ const SymbolIcon = ({ symbol, isWinning }: { symbol: SymbolType; isWinning?: boo
       {isWinning && (
         <motion.div 
           initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1.05 }}
-          className="absolute inset-0 border-2 border-yellow-500 rounded-lg pointer-events-none"
+          animate={{ 
+            opacity: [0.5, 1, 0.5],
+            scale: [1, 1.1, 1],
+            borderColor: ['#eab308', '#facc15', '#eab308']
+          }}
+          transition={{ repeat: Infinity, duration: 0.8 }}
+          className="absolute inset-0 border-4 border-yellow-500 rounded-lg pointer-events-none z-30"
         />
       )}
     </div>
@@ -124,67 +276,244 @@ export default function App() {
     Array(REEL_COUNT).fill(null).map(() => Array(ROW_COUNT).fill(false))
   );
 
+  const [isTurbo, setIsTurbo] = useState(false);
+  const [isAuto, setIsAuto] = useState(false);
+  const [freeSpins, setFreeSpins] = useState(0);
+  const [showFreeSpinIntro, setShowFreeSpinIntro] = useState(false);
+  const [awardedSpinsCount, setAwardedSpinsCount] = useState(0);
+  const [showBetMenu, setShowBetMenu] = useState(false);
+  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
+  const [reelSpinning, setReelSpinning] = useState<boolean[]>(Array(REEL_COUNT).fill(false));
+  const [targetReels, setTargetReels] = useState<SymbolType[][]>(reels);
+  const [isHighlighting, setIsHighlighting] = useState(false);
+  const reelsStoppedCount = useRef(0);
+
+  // Rarity Counters
+  const [kingSpinCount, setKingSpinCount] = useState(0);
+  const [gloveSpinCount, setGloveSpinCount] = useState(0);
+  const [kingThreshold] = useState(() => Math.floor(Math.random() * 6) + 25); // 25-30
+  const [gloveThreshold] = useState(() => Math.floor(Math.random() * 6) + 25); // 25-30
+
   const spinAudio = useRef<HTMLAudioElement | null>(null);
   const winAudio = useRef<HTMLAudioElement | null>(null);
 
   const handleSpin = useCallback(() => {
-    if (isSpinning || balance < bet) return;
+    if (isSpinning || (balance < bet && freeSpins === 0)) return;
+    setShowBetMenu(false);
 
     setIsSpinning(true);
+    setReelSpinning(Array(REEL_COUNT).fill(true));
     setShowBigWin(false);
     setWinAmount(0);
-    setBalance(prev => prev - bet);
+    playSound('spin', isSoundEnabled);
+    
+    if (freeSpins === 0) {
+      setBalance(prev => prev - bet);
+      setKingSpinCount(prev => prev + 1);
+      setGloveSpinCount(prev => prev + 1);
+    } else {
+      setFreeSpins(prev => prev - 1);
+    }
+
     setWinningCells(Array(REEL_COUNT).fill(null).map(() => Array(ROW_COUNT).fill(false)));
 
-    // Simulate spinning delay
-    setTimeout(() => {
-      const newReels = Array(REEL_COUNT).fill(null).map(() => 
-        Array(ROW_COUNT).fill(null).map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)])
-      );
-      setReels(newReels);
+    // --- Probability-based Outcome Generation (Balanced for Realism) ---
+    const outcomeRand = Math.random();
+    let outcomeType: 'none' | 'small' | 'medium' | 'big' = 'none';
+    
+    // 65% None, 25% Small, 7% Medium, 3% Big
+    if (outcomeRand < 0.03) outcomeType = 'big';
+    else if (outcomeRand < 0.10) outcomeType = 'medium';
+    else if (outcomeRand < 0.35) outcomeType = 'small';
+    else outcomeType = 'none';
 
-      // Simple win detection (3 or more of the same symbol in a row)
-      let totalWin = 0;
-      const newWinningCells = Array(REEL_COUNT).fill(null).map(() => Array(ROW_COUNT).fill(false));
-      let hasWin = false;
+    // Logic for King and Glove cards (Scatters) - Rare events
+    const canTriggerKing = kingSpinCount >= kingThreshold || Math.random() < 0.005;
+    const canTriggerGlove = gloveSpinCount >= gloveThreshold || Math.random() < 0.004;
+    
+    let kingCardsPlaced = 0;
+    let gloveCardsPlaced = 0;
 
+    const newReels: SymbolType[][] = [];
+    
+    // Helper to get a random standard symbol
+    const getStandardSymbol = () => {
+      const standardSymbols = SYMBOLS.filter(s => s.id !== 'king_card' && s.id !== 'glove_card' && !s.isWild);
+      return standardSymbols[Math.floor(Math.random() * standardSymbols.length)];
+    };
+
+    // Pre-generate reels with standard symbols
+    for (let c = 0; c < REEL_COUNT; c++) {
+      newReels.push(Array(ROW_COUNT).fill(null).map(() => getStandardSymbol()));
+    }
+
+    // Inject outcome based on probability
+    if (outcomeType !== 'none') {
+      const winRowCount = outcomeType === 'big' ? 3 : outcomeType === 'medium' ? 2 : 1;
+      const winSymbolCount = outcomeType === 'big' ? 5 : outcomeType === 'medium' ? 4 : 3;
+      
+      // Select random rows to win on
+      const rowsToWin = Array.from({ length: ROW_COUNT }, (_, i) => i)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, winRowCount);
+
+      rowsToWin.forEach(rowIdx => {
+        const winSym = getStandardSymbol();
+        for (let c = 0; c < winSymbolCount; c++) {
+          newReels[c][rowIdx] = winSym;
+        }
+      });
+    } else {
+      // For 'none', ensure no 3-of-a-kind on any row to avoid accidental wins
       for (let r = 0; r < ROW_COUNT; r++) {
-        const firstSymbol = newReels[0][r];
-        let count = 1;
-        for (let c = 1; c < REEL_COUNT; c++) {
-          if (newReels[c][r].id === firstSymbol.id || newReels[c][r].isWild || firstSymbol.isWild) {
-            count++;
-          } else {
-            break;
-          }
+        if (newReels[0][r].id === newReels[1][r].id && newReels[1][r].id === newReels[2][r].id) {
+          // Break the match by changing the 3rd symbol
+          const currentId = newReels[1][r].id;
+          newReels[2][r] = SYMBOLS.find(s => s.id !== currentId && s.id !== 'king_card' && s.id !== 'glove_card' && !s.isWild)!;
         }
+      }
+    }
 
-        if (count >= 3) {
-          hasWin = true;
-          const winValue = (firstSymbol.isWild ? SYMBOLS[0].value : firstSymbol.value) * count * (bet / 10);
-          totalWin += winValue;
-          for (let c = 0; c < count; c++) {
-            newWinningCells[c][r] = true;
-          }
+    // Inject Scatters and Wilds very sparingly
+    for (let c = 0; c < REEL_COUNT; c++) {
+      for (let r = 0; r < ROW_COUNT; r++) {
+        const rand = Math.random();
+        // Only inject if the cell isn't already part of a winning combination (to keep it simple)
+        if (canTriggerKing && kingCardsPlaced < 3 && rand < 0.01) {
+          newReels[c][r] = SYMBOLS.find(s => s.id === 'king_card')!;
+          kingCardsPlaced++;
+        } else if (canTriggerGlove && gloveCardsPlaced < 5 && rand < 0.008) {
+          newReels[c][r] = SYMBOLS.find(s => s.id === 'glove_card')!;
+          gloveCardsPlaced++;
+        } else if (rand < 0.01) {
+          newReels[c][r] = SYMBOLS.find(s => s.isWild)!;
+        }
+      }
+    }
+
+    setTargetReels(newReels);
+    reelsStoppedCount.current = 0;
+    setReelSpinning(Array(REEL_COUNT).fill(true));
+  }, [isSpinning, balance, bet, freeSpins, kingSpinCount, gloveSpinCount, kingThreshold, gloveThreshold, isTurbo, isSoundEnabled]);
+
+  const handleReelStop = useCallback((colIndex: number) => {
+    setReelSpinning(prev => {
+      const next = [...prev];
+      next[colIndex] = false;
+      return next;
+    });
+    
+    reelsStoppedCount.current += 1;
+    if (reelsStoppedCount.current === REEL_COUNT) {
+      finalizeSpin(targetReels);
+    }
+  }, [targetReels]);
+
+  const finalizeSpin = (newReels: SymbolType[][]) => {
+    setReels(newReels);
+
+    // Win Detection
+    let totalWin = 0;
+    const newWinningCells = Array(REEL_COUNT).fill(null).map(() => Array(ROW_COUNT).fill(false));
+    let hasWin = false;
+    
+    for (let r = 0; r < ROW_COUNT; r++) {
+      const firstSymbol = newReels[0][r];
+      if (firstSymbol.id === 'king_card' || firstSymbol.id === 'glove_card') continue;
+
+      let count = 1;
+      for (let c = 1; c < REEL_COUNT; c++) {
+        if (newReels[c][r].id === firstSymbol.id || newReels[c][r].isWild || firstSymbol.isWild) {
+          count++;
+        } else {
+          break;
         }
       }
 
+      if (count >= 3) {
+        const winValue = (firstSymbol.isWild ? SYMBOLS[0].value : firstSymbol.value) * count * (bet / 10);
+        totalWin += winValue;
+        hasWin = true;
+        for (let c = 0; c < count; c++) {
+          newWinningCells[c][r] = true;
+        }
+      }
+    }
+
+    // Special Card Logic (Free Spins)
+    let kingCount = 0;
+    let gloveCount = 0;
+    newReels.flat().forEach(s => {
+      if (s.id === 'king_card') kingCount++;
+      if (s.id === 'glove_card') gloveCount++;
+    });
+
+    let awardedFreeSpins = 0;
+    
+    // King Card Logic: 1->2, 2->3, 3->7
+    if (kingCount > 0) {
+      if (kingCount === 1) awardedFreeSpins += 2;
+      else if (kingCount === 2) awardedFreeSpins += 3;
+      else if (kingCount >= 3) awardedFreeSpins += 7;
+      setKingSpinCount(0);
+    }
+
+    // Glove Card Logic: 3->12, 4->15, 5->20
+    if (gloveCount >= 3) {
+      if (gloveCount === 3) awardedFreeSpins += 12;
+      else if (gloveCount === 4) awardedFreeSpins += 15;
+      else if (gloveCount >= 5) awardedFreeSpins += 20;
+      setGloveSpinCount(0);
+    }
+
+    // Start Highlight Flow
+    if (hasWin || awardedFreeSpins > 0) {
+      setIsHighlighting(true);
       setWinningCells(newWinningCells);
-      setWinAmount(totalWin);
-      setBalance(prev => prev + totalWin);
-      setIsSpinning(false);
+      playSound('win', isSoundEnabled);
 
-      if (totalWin >= bet * 10) {
-        setShowBigWin(true);
-        confetti({
-          particleCount: 150,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#FFD700', '#FFA500', '#FF4500']
-        });
-      }
-    }, 1200);
-  }, [isSpinning, balance, bet]);
+      // Wait for highlight animation before showing reward
+      setTimeout(() => {
+        setIsHighlighting(false);
+        
+        if (awardedFreeSpins > 0) {
+          setAwardedSpinsCount(awardedFreeSpins);
+          setFreeSpins(prev => prev + awardedFreeSpins);
+          setShowFreeSpinIntro(true);
+          setTimeout(() => setShowFreeSpinIntro(false), 3000);
+        }
+
+        if (totalWin > 0) {
+          setWinAmount(totalWin);
+          setBalance(prev => prev + totalWin);
+          
+          if (totalWin >= bet * 10) {
+            setShowBigWin(true);
+            playSound('bigWin', isSoundEnabled);
+            confetti({
+              particleCount: 150,
+              spread: 70,
+              origin: { y: 0.6 },
+              colors: ['#FFD700', '#FFA500', '#FF4500']
+            });
+          }
+        }
+        setIsSpinning(false);
+      }, 1500);
+    } else {
+      setIsSpinning(false);
+    }
+  };
+
+  useEffect(() => {
+    let autoTimer: NodeJS.Timeout;
+    if (isAuto && !isSpinning && (balance >= bet || freeSpins > 0)) {
+      autoTimer = setTimeout(() => {
+        handleSpin();
+      }, 1000);
+    }
+    return () => clearTimeout(autoTimer);
+  }, [isAuto, isSpinning, balance, bet, freeSpins, handleSpin]);
 
   const adjustBet = (amount: number) => {
     setBet(prev => Math.max(10, prev + amount));
@@ -206,7 +535,7 @@ export default function App() {
           {/* Decorative Ring */}
           <div className="absolute top-[2%] left-1/2 -translate-x-1/2 w-[140%] aspect-[2/1] opacity-30">
             <svg viewBox="0 0 800 400" className="w-full h-full">
-              <path d="M50 200 Q400 50 750 200 Q400 350 50 200" fill="none" stroke="#444" stroke-width="10" />
+              <path d="M50 200 Q400 50 750 200 Q400 350 50 200" fill="none" stroke="#444" strokeWidth="10" />
               <circle cx="150" cy="145" r="8" fill="#fff" />
               <circle cx="250" cy="135" r="8" fill="#fff" />
               <circle cx="400" cy="120" r="8" fill="#fff" />
@@ -261,6 +590,41 @@ export default function App() {
                 </motion.div>
               </div>
             </div>
+
+            {/* Free Spins Trigger Overlay */}
+            <AnimatePresence>
+              {showFreeSpinIntro && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-[110] flex items-center justify-center p-6 text-center bg-black/80 backdrop-blur-sm"
+                >
+                  <motion.div
+                    initial={{ scale: 0, rotate: -180 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    className="bg-gradient-to-b from-purple-600 to-indigo-900 p-8 rounded-3xl border-4 border-purple-400 shadow-[0_0_50px_rgba(168,85,247,0.5)]"
+                  >
+                    <motion.div
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                      className="text-6xl mb-4"
+                    >
+                      🎰
+                    </motion.div>
+                    <h2 className="text-4xl font-black text-white italic mb-2 tracking-tighter">FREE SPINS!</h2>
+                    <p className="text-purple-200 font-bold text-lg mb-4 uppercase">YOU WON {awardedSpinsCount} ROUNDS</p>
+                    <motion.div 
+                      animate={{ opacity: [1, 0.5, 1] }}
+                      transition={{ repeat: Infinity, duration: 1 }}
+                      className="text-white font-bold text-xs uppercase tracking-[0.3em]"
+                    >
+                      Starting Now...
+                    </motion.div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Big Win Overlay */}
             <AnimatePresence>
@@ -323,7 +687,7 @@ export default function App() {
                       className="absolute bottom-20 z-20 text-center"
                     >
                       <div className="text-7xl font-black text-white drop-shadow-[0_10px_25px_rgba(0,0,0,0.9)]">
-                        <span className="text-yellow-400">$</span>{winAmount}
+                        {winAmount} <span className="text-yellow-400 text-4xl">টাকা</span>
                       </div>
                       <div className="text-yellow-500 font-bold tracking-[0.6em] mt-3 text-base uppercase">
                         Mega Payout
@@ -363,28 +727,15 @@ export default function App() {
             <div className="bg-gradient-to-b from-zinc-800 to-zinc-950 rounded-xl border-2 border-zinc-700 p-1 shadow-xl relative">
               <div className="grid grid-cols-5 gap-0.5 bg-black rounded-lg overflow-hidden h-[192px] relative">
                 {reels.map((reel, colIndex) => (
-                  <div key={colIndex} className="relative h-full overflow-hidden">
-                    <motion.div 
-                      animate={{ 
-                        y: isSpinning ? [0, -500] : 0 
-                      }}
-                      transition={{ 
-                        repeat: isSpinning ? Infinity : 0, 
-                        duration: 0.1,
-                        ease: "linear"
-                      }}
-                      className="flex flex-col gap-0.5"
-                    >
-                      {reel.map((symbol, rowIndex) => (
-                        <div key={`${colIndex}-${rowIndex}`}>
-                          <SymbolIcon 
-                            symbol={symbol} 
-                            isWinning={winningCells[colIndex][rowIndex]}
-                          />
-                        </div>
-                      ))}
-                    </motion.div>
-                  </div>
+                  <Reel 
+                    key={colIndex}
+                    colIndex={colIndex}
+                    isSpinning={reelSpinning[colIndex]}
+                    targetSymbols={targetReels[colIndex]}
+                    isTurbo={isTurbo}
+                    onStop={() => handleReelStop(colIndex)}
+                    winningCells={winningCells[colIndex]}
+                  />
                 ))}
               </div>
             </div>
@@ -398,15 +749,15 @@ export default function App() {
               <div className="flex justify-between items-center bg-zinc-950/80 rounded-xl px-4 py-2 border border-zinc-800">
                 <div className="flex flex-col">
                   <span className="text-[8px] text-zinc-500 uppercase font-bold">Balance</span>
-                  <span className="font-mono text-sm font-bold text-yellow-500">${balance.toFixed(2)}</span>
+                  <span className="font-mono text-sm font-bold text-yellow-500">{balance.toFixed(2)} টাকা</span>
                 </div>
                 <div className="flex flex-col items-center">
                   <span className="text-[8px] text-zinc-500 uppercase font-bold">Win</span>
-                  <span className="text-sm font-black text-emerald-400 italic">${winAmount.toFixed(2)}</span>
+                  <span className="text-sm font-black text-emerald-400 italic">{winAmount.toFixed(2)} টাকা</span>
                 </div>
                 <div className="flex flex-col items-end">
                   <span className="text-[8px] text-zinc-500 uppercase font-bold">Bet</span>
-                  <span className="font-mono text-sm font-bold text-white">{bet}</span>
+                  <span className="font-mono text-sm font-bold text-white">{bet} টাকা</span>
                 </div>
               </div>
 
@@ -416,14 +767,23 @@ export default function App() {
                   <button className="w-9 h-9 flex items-center justify-center bg-zinc-800 rounded-lg text-zinc-400">
                     <Info className="w-4 h-4" />
                   </button>
-                  <button className="w-9 h-9 flex items-center justify-center bg-zinc-800 rounded-lg text-zinc-400">
-                    <Settings className="w-4 h-4" />
+                  <button 
+                    onClick={() => setIsSoundEnabled(!isSoundEnabled)}
+                    className="w-9 h-9 flex items-center justify-center bg-zinc-800 rounded-lg text-zinc-400"
+                  >
+                    {isSoundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
                   </button>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <button className="w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all border-zinc-700 text-zinc-500">
-                    <Zap className="w-5 h-5" />
+                  <button 
+                    onClick={() => setIsTurbo(!isTurbo)}
+                    className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all",
+                      isTurbo ? "border-yellow-500 text-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.5)]" : "border-zinc-700 text-zinc-500"
+                    )}
+                  >
+                    <Zap className={cn("w-5 h-5", isTurbo && "fill-current")} />
                   </button>
                   
                   <motion.button 
@@ -437,31 +797,74 @@ export default function App() {
                   >
                     <div className="absolute inset-1 rounded-full border border-white/20" />
                     <span className="font-black text-xl italic tracking-tighter text-center leading-none">
-                      {isSpinning ? "..." : "SPIN"}
+                      {isSpinning ? "..." : freeSpins > 0 ? `FREE ${freeSpins}` : "SPIN"}
                     </span>
                   </motion.button>
-
-                  <button className="w-10 h-10 rounded-full flex items-center justify-center border-2 border-zinc-700 text-zinc-500">
-                    <RotateCcw className="w-5 h-5" />
+ 
+                  <button 
+                    onClick={() => setIsAuto(!isAuto)}
+                    className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all",
+                      isAuto ? "border-green-500 text-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" : "border-zinc-700 text-zinc-500"
+                    )}
+                  >
+                    <RotateCcw className={cn("w-5 h-5", isAuto && "animate-spin")} />
                   </button>
                 </div>
 
-                <div className="flex flex-col items-center bg-zinc-800 px-1 rounded-xl border border-zinc-700">
-                  <button onClick={() => adjustBet(10)} className="p-1 text-zinc-400">
-                    <ChevronRight className="w-4 h-4 rotate-[-90deg]" />
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowBetMenu(!showBetMenu)}
+                    className="flex flex-col items-center bg-zinc-800 px-3 py-1 rounded-xl border border-zinc-700 hover:bg-zinc-700 transition-colors relative group"
+                  >
+                    <span className="text-[8px] text-zinc-500 uppercase font-bold">Bet</span>
+                    <div className="flex items-center gap-1">
+                      <span className="font-black text-sm text-yellow-500">{bet} টাকা</span>
+                      <motion.div 
+                        animate={{ y: [0, -4, 0] }} 
+                        transition={{ repeat: Infinity, duration: 1 }}
+                      >
+                        <ChevronUp className="w-4 h-4 text-red-500" />
+                      </motion.div>
+                    </div>
+                    
+                    {/* Tooltip hint */}
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-red-600 text-[8px] text-white px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap font-bold uppercase">
+                      Change Bet
+                    </div>
                   </button>
-                  <span className="font-black text-xs text-yellow-500">{bet}</span>
-                  <button onClick={() => adjustBet(-10)} className="p-1 text-zinc-400">
-                    <ChevronLeft className="w-4 h-4 rotate-[-90deg]" />
-                  </button>
-                </div>
 
-                <button 
-                  className="w-10 h-10 rounded-full flex items-center justify-center bg-zinc-800 border border-zinc-700 text-yellow-500 hover:bg-zinc-700 transition-colors"
-                  title="Download Game"
-                >
-                  <Download className="w-5 h-5" />
-                </button>
+                  <AnimatePresence>
+                    {showBetMenu && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        className="absolute bottom-full mb-2 right-0 z-[100] bg-zinc-900 border-2 border-yellow-600 rounded-xl p-2 shadow-2xl min-w-[220px]"
+                      >
+                        <div className="grid grid-cols-4 gap-1">
+                          {BET_VALUES.map((val) => (
+                            <button
+                              key={val}
+                              onClick={() => {
+                                setBet(val);
+                                setShowBetMenu(false);
+                              }}
+                              className={cn(
+                                "py-2 rounded-lg font-mono font-bold text-[10px] transition-all",
+                                bet === val 
+                                  ? "bg-yellow-500 text-black scale-105" 
+                                  : "bg-zinc-800 text-white hover:bg-zinc-700"
+                              )}
+                            >
+                              {val}
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
             </div>
           </div>
